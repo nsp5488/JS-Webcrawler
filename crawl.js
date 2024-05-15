@@ -1,8 +1,7 @@
-export { normalizeURL, getURLsFromHTML };
+export { normalizeURL, getURLsFromHTML, crawlPage };
 import { JSDOM } from 'jsdom';
 
 function normalizeURL(url) {
-    console.log(url)
     let urlObject = new URL(url);
     let path = urlObject.pathname;
     if(path && path[path.length - 1] == '/') {
@@ -22,10 +21,58 @@ function getURLsFromHTML(html, baseUrl) {
                 href = new URL(href, baseUrl).href;
                 links.push(href);
             } catch(err) {
-                console.log(`Received ${err.message}, while processing ${href}`)
+                console.log(`Received ${err.message}, while processing ${baseUrl}/${href}`)
             }
         }
     }
     
     return links
+}
+
+async function crawlPage(baseUrl, currentUrl=baseUrl, pages={}) {
+    // check domain:
+    let domain = new URL(baseUrl).hostname;
+    if(!currentUrl.includes(domain)){
+        return pages;
+    }
+    const currentUrlNormalized = normalizeURL(currentUrl);
+    if(pages[currentUrlNormalized]){
+        pages[currentUrlNormalized]++;
+        return;
+    } else {
+        pages[currentUrlNormalized] = 1;
+    }
+    const html = await getPageAndParseIt(currentUrl);
+    const urls = getURLsFromHTML(html, baseUrl);
+    if(urls) {
+        for(const url of urls) {
+            crawlPage(baseUrl, url, pages);
+        }
+    }
+
+    return pages;
+}
+
+async function getPageAndParseIt(url) {
+    let response
+    try {
+    response = await fetch(url, {
+        method:'GET',
+        mode:'cors',
+    });
+    } catch(err) {
+        console.log(`Encountered ${err.message} while fetching ${url}`)
+        return
+    }
+    if(response.status >= 400) {
+        console.log(`Error: ${response.statusText}`);
+        return
+    }
+    
+
+    if(response.headers.has('content-type') && !response.headers.get('content-type').includes('text/html')) {
+        console.log(`Invalid content type: ${response.headers.get('content-type')} on page ${url}`);
+        return
+    }
+    return await response.text();
 }
